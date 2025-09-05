@@ -1,0 +1,9 @@
+[
+  {"team":"Ravens","edge_signal":6.2,"score_recent":8.7,"score_baseline_mean":2.5,"triggers":["Injury","Betting"]},
+  {"team":"Bills","edge_signal":-2.1,"score_recent":1.0,"score_baseline_mean":3.1,"triggers":["Injury"]}
+]
+
+[
+  {"team":"Ravens","title":"WR hamstring keeps him limited Thursday","url":"https://example.com/1","score":3.9,"topics":["Injury"],"source":"ESPN"},
+  {"team":"Bills","title":"Starting CB out (concussion protocol)","url":"https://example.com/3","score":2.4,"topics":["Injury"],"source":"Buffalo News"}
+]
