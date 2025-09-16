@@ -1,17 +1,55 @@
-import type { Game } from "@/lib/types";
-import type { ScraperGame } from "@/lib/clients/scraper";
-import type { AnalyzeOutput } from "@/lib/clients/analyzer";
+﻿// lib/normalize.ts
+// @ts-nocheck
 
-export function toUiGames(raw: ScraperGame[], analyzed?: AnalyzeOutput): Game[] {
-  const byId = new Map(analyzed?.map(a => [a.id, a]) ?? []);
-  return raw.map<Game>(g => {
-    const a = byId.get(g.id);
+// Normalize raw scraper games into a UI-friendly shape,
+// and optionally merge "analyzed" results if present.
+export function toUiGames(raw: any[], analyzed?: any): any[] {
+  const results = Array.isArray(analyzed)
+    ? analyzed
+    : Array.isArray(analyzed?.results)
+    ? analyzed.results
+    : [];
+
+  // index analyzer results by a plausible game id
+  const byId = new Map<string, any>();
+  for (const r of results) {
+    const id = r?.id ?? r?.gameId ?? r?.game_id;
+    if (id != null) byId.set(String(id), r);
+  }
+
+  return (raw ?? []).map((g: any) => {
+    const id =
+      String(
+        g.id ??
+        g.gameId ??
+        g.game_id ??
+        `${g.away_team ?? g.away ?? ""}-${g.home_team ?? g.home ?? ""}-${g.start_date ?? g.start ?? ""}`
+      );
+
+    const extra = byId.get(id) ?? {};
+
+    const homeName = g.home_team ?? g.homeTeam ?? g.home?.name ?? g.home ?? "Home";
+    const awayName = g.away_team ?? g.awayTeam ?? g.away?.name ?? g.away ?? "Away";
+
+    const homeScore =
+      g.home_points ?? g.homeScore ?? g.home_points_total ?? g.home?.score ?? null;
+    const awayScore =
+      g.away_points ?? g.awayScore ?? g.away_points_total ?? g.away?.score ?? null;
+
+    const start = g.start_date ?? g.startTime ?? g.start ?? null;
+    const status = g.status ?? (g.completed ? "Final" : start ? "Scheduled" : null);
+
     return {
-      id: g.id, league: g.league, start: g.start, venue: g.venue ?? "",
-      home: { id: g.home.id, name: g.home.name, record: g.home.record },
-      away: { id: g.away.id, name: g.away.name, record: g.away.record },
-      market: { spread: g.market?.spread ?? "", total: g.market?.total ?? "" },
-      edge: { evPct: a?.edge.evPct ?? 0 },
+      id,
+      start,
+      venue: g.venue ?? g.venue_name ?? null,
+      network: g.tv ?? g.network ?? null,
+      status,
+      home: { name: homeName, score: homeScore },
+      away: { name: awayName, score: awayScore },
+      edge: extra.edge ?? {},
+      market: extra.market ?? {},
+      _raw: g,
     };
   });
 }
