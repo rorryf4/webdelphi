@@ -1,4 +1,6 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 /** GET: analysis via SCRAPER_URL with robust error handling */
 export async function GET(req: NextRequest) {
@@ -13,18 +15,15 @@ export async function GET(req: NextRequest) {
 
     const upstream = await fetch(`${base}/scrape?league=${encodeURIComponent(league)}&week=${encodeURIComponent(week)}`, { cache: "no-store" });
 
+    const text = await upstream.text();
     if (upstream.status === 204) {
       return NextResponse.json({ ok: true, league, week, count: 0, results: [] });
     }
-
-    const text = await upstream.text();
-
     if (!upstream.ok) {
-      // surface upstream error body to help debug
-      return NextResponse.json({ error: "upstream", status: upstream.status, body: text.slice(0, 500) }, { status: 502 });
+      return NextResponse.json({ error: "upstream", status: upstream.status, body: text.slice(0, 1000) }, { status: 502 });
     }
 
-    // Try to parse as { games: [...] } or as [...] directly
+    // Try to parse array or { games: [...] }
     let games: any[] = [];
     try {
       const parsed = JSON.parse(text);
@@ -60,12 +59,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
-/** POST: proxy to your Render analyzer */
+/** POST: proxy to your Render analyzer (already working) */
 export async function POST(req: Request) {
   const base = process.env.ANALYZER_URL;
-  if (!base) {
-    return NextResponse.json({ ok: false, error: "missing_ANALYZER_URL" }, { status: 500 });
-  }
+  if (!base) return NextResponse.json({ ok: false, error: "missing_ANALYZER_URL" }, { status: 500 });
 
   let body: unknown = {};
   try { body = await req.json(); } catch { body = {}; }
