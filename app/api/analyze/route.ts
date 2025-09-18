@@ -1,40 +1,63 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 
-/** GET: your existing analysis using SCRAPER_URL */
+/** GET: analysis via SCRAPER_URL with robust error handling */
 export async function GET(req: NextRequest) {
-  const { searchParams } = new URL(req.url);
-  const league = searchParams.get("league") ?? "ncaaf";
-  const week = searchParams.get("week") ?? "";
+  try {
+    const url = new URL(req.url);
+    const league = url.searchParams.get("league") ?? "ncaaf";
+    const week = url.searchParams.get("week");
+    if (!week) return NextResponse.json({ error: "missing_week" }, { status: 400 });
 
-  const base = process.env.SCRAPER_URL;
-  if (!base) return NextResponse.json({ error: "missing_config", detail: "SCRAPER_URL not set" }, { status: 500 });
-  if (!week) return NextResponse.json({ error: "missing_week" }, { status: 400 });
+    const base = process.env.SCRAPER_URL;
+    if (!base) return NextResponse.json({ error: "missing_config", detail: "SCRAPER_URL not set" }, { status: 500 });
 
-  const r = await fetch(`${base}/scrape?league=${encodeURIComponent(league)}&week=${encodeURIComponent(week)}`, { cache: "no-store" });
-  if (!r.ok) return NextResponse.json({ error: "upstream", status: r.status }, { status: 502 });
-  if (r.status === 204) return NextResponse.json({ ok: true, week, results: [] });
+    const upstream = await fetch(`${base}/scrape?league=${encodeURIComponent(league)}&week=${encodeURIComponent(week)}`, { cache: "no-store" });
 
-  const { games = [] } = await r.json();
-  const results = games.map((g: any) => {
-    const home = g.home_team ?? g.homeTeam ?? g.home;
-    const away = g.away_team ?? g.awayTeam ?? g.away;
-    const hp = g.home_points ?? g.homeScore ?? null;
-    const ap = g.away_points ?? g.awayScore ?? null;
-    const diff = hp != null && ap != null ? Math.abs(hp - ap) : null;
-    const closeGame = diff != null ? diff <= 7 : null;
-    return {
-      id: g.id ?? `${away}@${home}`,
-      matchup: `${away} @ ${home}`,
-      kickoff: g.start_date ?? g.startTime ?? null,
-      status: g.status ?? (g.completed ? "Final" : "Scheduled"),
-      score: hp != null && ap != null ? `${ap}-${hp}` : null,
-      metrics: { scoreDiff: diff, closeGame },
-      pick: closeGame === true ? "No Play (coin-flip)" : "Lean Favorite",
-      confidence: closeGame === true ? 0.5 : 0.6,
-    };
-  });
+    if (upstream.status === 204) {
+      return NextResponse.json({ ok: true, league, week, count: 0, results: [] });
+    }
 
-  return NextResponse.json({ ok: true, league, week, count: results.length, results });
+    const text = await upstream.text();
+
+    if (!upstream.ok) {
+      // surface upstream error body to help debug
+      return NextResponse.json({ error: "upstream", status: upstream.status, body: text.slice(0, 500) }, { status: 502 });
+    }
+
+    // Try to parse as { games: [...] } or as [...] directly
+    let games: any[] = [];
+    try {
+      const parsed = JSON.parse(text);
+      games = Array.isArray(parsed) ? parsed : (parsed?.games ?? []);
+      if (!Array.isArray(games)) games = [];
+    } catch {
+      games = [];
+    }
+
+    const results = games.map((g: any) => {
+      const home = g.home_team ?? g.homeTeam ?? g.home ?? g.homeName ?? "Home";
+      const away = g.away_team ?? g.awayTeam ?? g.away ?? g.awayName ?? "Away";
+      const hp = g.home_points ?? g.homeScore ?? g.home_points_total ?? null;
+      const ap = g.away_points ?? g.awayScore ?? g.away_points_total ?? null;
+      const diff = (hp != null && ap != null) ? Math.abs(Number(hp) - Number(ap)) : null;
+      const closeGame = diff != null ? diff <= 7 : null;
+      return {
+        id: g.id ?? g.game_id ?? `${away}@${home}`,
+        matchup: `${away} @ ${home}`,
+        kickoff: g.start_date ?? g.startTime ?? g.kickoff ?? null,
+        status: g.status ?? (g.completed ? "Final" : g.in_progress ? "In-Progress" : "Scheduled"),
+        score: (hp != null && ap != null) ? `${ap}-${hp}` : null,
+        metrics: { scoreDiff: diff, closeGame },
+        pick: closeGame === true ? "No Play (coin-flip)" : "Lean Favorite",
+        confidence: closeGame === true ? 0.5 : 0.6
+      };
+    });
+
+    return NextResponse.json({ ok: true, league, week, count: results.length, results });
+  } catch (e: any) {
+    console.error("[/api/analyze][GET] error", e);
+    return NextResponse.json({ error: "internal", message: e?.message ?? String(e) }, { status: 500 });
+  }
 }
 
 /** POST: proxy to your Render analyzer */
